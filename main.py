@@ -25,23 +25,35 @@ load_dotenv()
 # Initialize FastAPI app
 app = FastAPI()
 
-# Configure CORS
+# Configure CORS for Render deployment
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:5173",  # Local development
+        "http://localhost:3000",  # Alternative local port
+        "https://occusafe-pharmacy.netlify.app",  # Production frontend
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Load the model
+# Load the model - Using absolute path for Render deployment
 MODEL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "glaucoma_detection_model.keras")
-try:
-    model = tf.keras.models.load_model(MODEL_PATH)
-    logger.info("Model loaded successfully")
-except Exception as e:
-    logger.error(f"Error loading model: {str(e)}")
-    model = None
+
+# Initialize model variable
+model = None
+
+@app.on_event("startup")
+async def load_model():
+    """Load the model on startup"""
+    global model
+    try:
+        model = tf.keras.models.load_model(MODEL_PATH)
+        logger.info("Model loaded successfully")
+    except Exception as e:
+        logger.error(f"Error loading model: {str(e)}")
+        model = None
 
 def plot_to_base64(figure):
     """Convert matplotlib figure to base64 string"""
@@ -86,6 +98,11 @@ def generate_lime_explanation(img_array, preprocessed_image):
     except Exception as e:
         logger.error(f"Error generating LIME explanation: {str(e)}")
         raise HTTPException(status_code=500, detail="Error generating explanation")
+
+@app.get("/")
+async def root():
+    """Root endpoint"""
+    return {"message": "Glaucoma Detection API is running"}
 
 @app.get("/health")
 async def health_check():
@@ -222,4 +239,5 @@ async def predict(file: UploadFile = File(...)):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
